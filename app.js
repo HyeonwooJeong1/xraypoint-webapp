@@ -519,6 +519,7 @@ function updateCsvButtons() {
   const any = !state.images.some(im => im.legs);
   $("btn-csv-all").disabled = any;
   $("btn-csv-prev").disabled = any;
+  $("btn-png-all").disabled = any;
 }
 
 $("btn-csv").onclick = () => {
@@ -612,16 +613,92 @@ function exportAnnotated(im) { // 원본 해상도 PNG (현재 토글 상태 반
     });
   }
 
-  out.toBlob(blob => {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = im.name.replace(/\.[^.]+$/, "") + "_annotated.png";
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }, "image/png");
+  return new Promise(res => out.toBlob(res, "image/png"));
 }
 
-$("btn-png").onclick = () => exportAnnotated(state.images[state.cur]);
+function downloadBlob(blob, fname) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = fname; a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function annotatedName(im) { return im.name.replace(/\.[^.]+$/, "") + "_annotated.png"; }
+
+// ---------- 무압축 ZIP 생성 (일괄 PNG 저장용, 외부 라이브러리 없이) ----------
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c;
+  }
+  return t;
+})();
+
+function crc32(u8) {
+  let c = 0xFFFFFFFF;
+  for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+  return (c ^ 0xFFFFFFFF) >>> 0;
+}
+
+function zipStore(files) { // files: [{name, data: Uint8Array}] -> Blob (STORE 방식)
+  const enc = new TextEncoder();
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  const parts = [], central = [];
+  let offset = 0;
+  for (const f of files) {
+    const name = enc.encode(f.name), crc = crc32(f.data), n = f.data.length;
+    const head = new DataView(new ArrayBuffer(30));
+    head.setUint32(0, 0x04034b50, true);
+    head.setUint16(4, 20, true);      // version needed
+    head.setUint16(6, 0x0800, true);  // UTF-8 파일명 플래그
+    head.setUint16(8, 0, true);       // STORE
+    head.setUint16(10, dosTime, true); head.setUint16(12, dosDate, true);
+    head.setUint32(14, crc, true);
+    head.setUint32(18, n, true); head.setUint32(22, n, true);
+    head.setUint16(26, name.length, true); head.setUint16(28, 0, true);
+    parts.push(head.buffer, name, f.data);
+    const c = new DataView(new ArrayBuffer(46));
+    c.setUint32(0, 0x02014b50, true);
+    c.setUint16(4, 20, true); c.setUint16(6, 20, true);
+    c.setUint16(8, 0x0800, true); c.setUint16(10, 0, true);
+    c.setUint16(12, dosTime, true); c.setUint16(14, dosDate, true);
+    c.setUint32(16, crc, true);
+    c.setUint32(20, n, true); c.setUint32(24, n, true);
+    c.setUint16(28, name.length, true);
+    c.setUint32(42, offset, true);
+    central.push(c.buffer, name);
+    offset += 30 + name.length + n;
+  }
+  const cdSize = central.reduce((s, b) => s + (b.byteLength || b.length), 0);
+  const eocd = new DataView(new ArrayBuffer(22));
+  eocd.setUint32(0, 0x06054b50, true);
+  eocd.setUint16(8, files.length, true); eocd.setUint16(10, files.length, true);
+  eocd.setUint32(12, cdSize, true); eocd.setUint32(16, offset, true);
+  return new Blob([...parts, ...central, eocd.buffer], { type: "application/zip" });
+}
+
+async function exportAllAnnotated() {
+  const ims = state.images.filter(im => im.legs);
+  const files = [];
+  for (let i = 0; i < ims.length; i++) {
+    setStatus(`PNG 생성 중 ${i + 1}/${ims.length}…`);
+    await new Promise(r => setTimeout(r, 0)); // UI 갱신 양보
+    const blob = await exportAnnotated(ims[i]);
+    files.push({ name: annotatedName(ims[i]), data: new Uint8Array(await blob.arrayBuffer()) });
+  }
+  downloadBlob(zipStore(files), "xraypoint_annotated.zip");
+  setStatus(`완료 — PNG ${files.length}장을 zip으로 저장했습니다`);
+}
+
+$("btn-png").onclick = async () => {
+  const im = state.images[state.cur];
+  downloadBlob(await exportAnnotated(im), annotatedName(im));
+};
+$("btn-png-all").onclick = exportAllAnnotated;
 
 // ---------- CSV 미리보기 ----------
 const CSV_HEAD = ["image", "side", ...MEASURES,
