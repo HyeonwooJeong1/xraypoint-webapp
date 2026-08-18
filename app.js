@@ -301,7 +301,7 @@ function renderCanvas() {
     if (!leg || !state.sideOn[side]) continue;
     const pts = leg.points;
     if (state.showAxes) {
-      cctx.lineWidth = 1.5; cctx.strokeStyle = "#4FB3C6"; cctx.globalAlpha = 0.8;
+      cctx.lineWidth = 1.5; cctx.strokeStyle = "#EF4444"; cctx.globalAlpha = 0.8;
       for (const [a, b, dashed] of activeSegs()) {
         if (!pts[a] || !pts[b]) continue;
         cctx.setLineDash(dashed ? [7, 6] : []);
@@ -317,7 +317,7 @@ function renderCanvas() {
         if (!pts[n]) continue;
         const x = pts[n][0]*S + OX, y = pts[n][1]*S + OY;
         cctx.beginPath(); cctx.arc(x, y, 2.5, 0, 7);
-        cctx.fillStyle = leg.edited.has(n) ? "#FFD966" : "#38BDF8";
+        cctx.fillStyle = leg.edited.has(n) ? "#FFD966" : "#EF4444";
         cctx.fill();
         if (state.showNames) {
           cctx.font = "bold 12px sans-serif";
@@ -365,7 +365,7 @@ function drawInset(cnv, im, side, joint, u = 1) { // u: 표기 스케일 (내보
   ctx.drawImage(im.bitmap, x0, y0, regW, regH, 0, 0, cw, ch);
   const pts = leg.points;
   if (state.showAxes) {
-    ctx.lineWidth = 1.5 * u; ctx.strokeStyle = "#4FB3C6"; ctx.globalAlpha = 0.85;
+    ctx.lineWidth = 1.5 * u; ctx.strokeStyle = "#EF4444"; ctx.globalAlpha = 0.85;
     for (const [a, b, dashed] of activeSegs()) {
       if (!pts[a] || !pts[b]) continue;
       ctx.setLineDash(dashed ? [7 * u, 6 * u] : []);
@@ -382,7 +382,7 @@ function drawInset(cnv, im, side, joint, u = 1) { // u: 표기 스케일 (내보
       const x = (pts[n][0] - x0) * s, y = (pts[n][1] - y0) * s;
       if (x < -10 * u || x > cw + 10 * u || y < -10 * u || y > ch + 10 * u) continue;
       ctx.beginPath(); ctx.arc(x, y, 2.2 * u, 0, 7);
-      ctx.fillStyle = leg.edited.has(n) ? "#FFD966" : "#38BDF8";
+      ctx.fillStyle = leg.edited.has(n) ? "#FFD966" : "#EF4444";
       ctx.fill();
       if (state.showNames) {
         ctx.font = `bold ${11 * u}px sans-serif`;
@@ -542,7 +542,7 @@ function exportAnnotated(im) { // 원본 해상도 PNG (현재 토글 상태 반
     if (!leg || !state.sideOn[side]) continue;
     const pts = leg.points;
     if (state.showAxes) {
-      ctx.lineWidth = 1.3 * u; ctx.strokeStyle = "#4FB3C6"; ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 1.3 * u; ctx.strokeStyle = "#EF4444"; ctx.globalAlpha = 0.85;
       for (const [a, b, dashed] of activeSegs()) {
         if (!pts[a] || !pts[b]) continue;
         ctx.setLineDash(dashed ? [7 * u, 6 * u] : []);
@@ -557,7 +557,7 @@ function exportAnnotated(im) { // 원본 해상도 PNG (현재 토글 상태 반
       for (const n of PT_ORDER) {
         if (!pts[n]) continue;
         ctx.beginPath(); ctx.arc(pts[n][0], pts[n][1], 1.6 * u, 0, 7);
-        ctx.fillStyle = leg.edited.has(n) ? "#FFD966" : "#38BDF8";
+        ctx.fillStyle = leg.edited.has(n) ? "#FFD966" : "#EF4444";
         ctx.fill();
         if (state.showNames) {
           ctx.font = `bold ${9 * u}px sans-serif`;
