@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>xraypoint — 하반신 정렬 자동 측정</title>
+<style>
+:root { --bg:#10171A; --card:#182228; --ink:#E4ECEF; --ink2:#9FB2B9; --line:#26343B;
+        --accent:#4FB3C6; --warn:#D98E32; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); height:100vh; display:flex;
+  flex-direction:column; font:14px/1.5 -apple-system,"Segoe UI","Malgun Gothic",sans-serif; }
+header { display:flex; gap:10px; align-items:center; padding:10px 16px;
+  border-bottom:1px solid var(--line); flex-wrap:wrap; }
+header b { font-size:15px; }
+button, label.btn { background:var(--card); color:var(--ink); border:1px solid var(--line);
+  border-radius:8px; padding:5px 12px; cursor:pointer; font:inherit; display:inline-block; }
+button.on { border-color:var(--accent); color:var(--accent); }
+button.primary { background:var(--accent); color:#08252B; border-color:var(--accent); font-weight:600; }
+button:disabled { opacity:.45; cursor:default; }
+#status { color:var(--ink2); font-size:12.5px; margin-left:auto; }
+main { flex:1; display:grid; grid-template-columns:250px 1fr 300px; gap:10px;
+  padding:10px; min-height:0; }
+.panel { background:var(--card); border:1px solid var(--line); border-radius:10px;
+  display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.panel h3 { margin:0; padding:7px 10px; font-size:12.5px; color:var(--ink2);
+  border-bottom:1px solid var(--line); font-weight:600; }
+#filelist { overflow-y:auto; flex:1; }
+#filelist .item { padding:7px 10px; border-bottom:1px solid var(--line); cursor:pointer;
+  font-size:12.5px; }
+#filelist .item.sel { background:#1D3038; border-left:3px solid var(--accent); }
+#filelist .item .st { color:var(--ink2); font-size:11px; }
+#cvwrap { flex:1; min-height:0; display:flex; gap:8px; padding:8px; }
+#cv { flex:1; min-width:0; height:100%; cursor:grab; touch-action:none; }
+#cv:active { cursor:grabbing; }
+#jointviews { display:none; grid-auto-rows:1fr; gap:8px; min-height:0; }
+canvas.jv { width:100%; height:100%; min-height:0; border:1px solid var(--line);
+  border-radius:8px; background:#000; }
+#angles { padding:8px 10px; overflow-y:auto; font-variant-numeric:tabular-nums; }
+#angles table { width:100%; border-collapse:collapse; font-size:12.5px; }
+#angles th, #angles td { padding:3px 6px; text-align:right; border-bottom:1px solid var(--line); }
+#angles th:first-child, #angles td:first-child { text-align:left; }
+#angles .sec { color:var(--ink2); font-size:11.5px; padding-top:8px; }
+.hint { color:var(--ink2); font-size:11.5px; padding:8px 10px; border-top:1px solid var(--line); }
+kbd { background:var(--line); border-radius:4px; padding:0 5px; font-size:11px; }
+.dot { display:inline-block; width:9px; height:9px; border-radius:50%; vertical-align:-1px;
+  margin-right:4px; }
+#drop { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+  background:rgba(16,23,26,.85); font-size:22px; z-index:9; pointer-events:none; }
+.anggrp { display:inline-flex; gap:4px; padding:0 4px; border-left:1px solid var(--line);
+  border-right:1px solid var(--line); }
+button.sm { padding:4px 8px; font-size:12px; }
+#csvmodal { position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+  background:rgba(16,23,26,.8); z-index:10; }
+#csvbox { background:var(--card); border:1px solid var(--line); border-radius:12px;
+  width:min(92vw,1200px); max-height:84vh; display:flex; flex-direction:column; }
+#csvbox header { border-bottom:1px solid var(--line); padding:10px 14px; }
+#csvtable { overflow:auto; padding:0 10px 10px; font-variant-numeric:tabular-nums; }
+#csvtable table { border-collapse:collapse; font-size:12px; white-space:nowrap; }
+#csvtable th, #csvtable td { padding:3px 8px; border-bottom:1px solid var(--line);
+  text-align:right; }
+#csvtable th { position:sticky; top:0; background:var(--card); color:var(--ink2);
+  font-weight:600; }
+#csvtable th:first-child, #csvtable td:first-child { text-align:left; }
+#csvbox footer { border-top:1px solid var(--line); padding:8px 14px; display:flex;
+  gap:8px; align-items:center; }
+#csvcount { color:var(--ink2); font-size:12px; margin-left:auto; }
+</style>
+</head>
+<body>
+<header>
+  <b>xraypoint</b><span style="color:var(--ink2);font-size:12px">하반신 정렬 자동 측정 (브라우저 내 추론)</span>
+  <label class="btn primary">X-ray 파일 열기<input id="file" type="file" accept="image/*" multiple hidden></label>
+  <button id="btn-pts" class="on"><span class="dot" style="background:#38BDF8"></span>점 (P)</button>
+  <button id="btn-axes" class="on">축선 (A)</button>
+  <button id="btn-names">이름 (L)</button>
+  <span class="anggrp">
+    <button id="btn-side-right" class="on sm">6 오른쪽</button>
+    <button id="btn-side-left" class="on sm">7 왼쪽</button>
+  </span>
+  <span class="anggrp">
+    <button id="btn-joint-hip" class="on sm">8 골반</button>
+    <button id="btn-joint-knee" class="on sm">9 무릎</button>
+    <button id="btn-joint-ankle" class="on sm">0 발목</button>
+  </span>
+  <span class="anggrp">
+    <button id="btn-ang-mHKA" class="on sm">1 mHKA</button>
+    <button id="btn-ang-MPTA" class="on sm">2 MPTA</button>
+    <button id="btn-ang-LDFA" class="on sm">3 LDFA</button>
+    <button id="btn-ang-JLCA" class="on sm">4 JLCA</button>
+    <button id="btn-ang-WBL" class="on sm">5 WBL</button>
+  </span>
+  <button id="btn-png" disabled>PNG 저장</button>
+  <button id="btn-csv-prev" disabled>CSV 미리보기</button>
+  <button id="btn-csv" disabled>CSV 저장 (현재)</button>
+  <button id="btn-csv-all" disabled>CSV 저장 (전체)</button>
+  <span id="status">모델 로딩 중…</span>
+</header>
+<main>
+  <div class="panel"><h3>파일</h3><div id="filelist"></div>
+    <div class="hint">여러 장 선택/드래그 가능<br>순차 처리 후 목록 클릭으로 전환</div></div>
+  <div class="panel"><h3 id="cvtitle">이미지</h3>
+    <div id="cvwrap"><canvas id="cv"></canvas><div id="jointviews"></div></div>
+    <div class="hint">휠 줌 · 드래그 이동 · 더블클릭 리셋 · <b>점 근처를 드래그하면 수정</b>(각도 즉시 재계산, 수정점은 노란색) · <kbd>8</kbd><kbd>9</kbd><kbd>0</kbd> 관절 확대창</div></div>
+  <div class="panel"><h3>각도</h3><div id="angles"><div class="sec">이미지를 열면 표시됩니다</div></div>
+    <div class="hint">mHKA·MPTA·LDFA·JLCA(°)·WBL(%) · <kbd>1</kbd>~<kbd>5</kbd> 각도별 축선 · <kbd>6</kbd>/<kbd>7</kbd> 좌우 토글<br>EfficientNet-B0 · 좌표는 원본 픽셀 · 좌우는 환자 기준</div></div>
+</main>
+<div id="drop">이미지를 놓으세요</div>
+<div id="csvmodal">
+  <div id="csvbox">
+    <header style="display:flex;align-items:center;gap:10px;border:0;border-bottom:1px solid var(--line)">
+      <b>CSV 미리보기</b>
+      <button id="csv-close" style="margin-left:auto">닫기 (Esc)</button>
+    </header>
+    <div id="csvtable"></div>
+    <footer>
+      <button id="csv-dl" class="primary">CSV 다운로드 (전체)</button>
+      <span id="csvcount"></span>
+    </footer>
+  </div>
+</div>
+<script src="lib/ort.min.js"></script>
+<script src="app.js?v=9"></script>
+</body>
+</html>

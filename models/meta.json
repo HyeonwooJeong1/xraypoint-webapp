@@ -1,0 +1,112 @@
+{
+  "stage1": {
+    "input": [
+      1,
+      1,
+      512,
+      256
+    ],
+    "channels": 3,
+    "landmarks": [
+      "hip_center",
+      "knee_center",
+      "ankle_center"
+    ],
+    "sigma": 4.0,
+    "roi": null,
+    "size_mb": 23.4
+  },
+  "hip": {
+    "input": [
+      1,
+      1,
+      256,
+      256
+    ],
+    "channels": 1,
+    "landmarks": [
+      "p1"
+    ],
+    "sigma": 4.0,
+    "roi": {
+      "center_landmarks": [
+        "p1"
+      ],
+      "hip_landmark": "hip_center",
+      "ankle_landmark": "ankle_center",
+      "ratio": 0.16,
+      "jitter": 0.1
+    },
+    "size_mb": 23.4
+  },
+  "knee": {
+    "input": [
+      1,
+      1,
+      384,
+      384
+    ],
+    "channels": 11,
+    "landmarks": [
+      "p2",
+      "p3",
+      "p4",
+      "p5",
+      "p6",
+      "p7",
+      "p8",
+      "p9",
+      "p10",
+      "p11",
+      "p15"
+    ],
+    "sigma": 4.0,
+    "roi": {
+      "center_landmarks": [
+        "p2",
+        "p3",
+        "p4",
+        "p5",
+        "p6",
+        "p7",
+        "p8",
+        "p9",
+        "p10",
+        "p11",
+        "p15"
+      ],
+      "hip_landmark": "hip_center",
+      "ankle_landmark": "ankle_center",
+      "ratio": 0.24,
+      "jitter": 0.1
+    },
+    "size_mb": 23.4
+  },
+  "ankle": {
+    "input": [
+      1,
+      1,
+      256,
+      256
+    ],
+    "channels": 3,
+    "landmarks": [
+      "p12",
+      "p13",
+      "p14"
+    ],
+    "sigma": 4.0,
+    "roi": {
+      "center_landmarks": [
+        "p12",
+        "p13",
+        "p14"
+      ],
+      "hip_landmark": "hip_center",
+      "ankle_landmark": "ankle_center",
+      "ratio": 0.1,
+      "jitter": 0.1
+    },
+    "size_mb": 23.4
+  }
+}
