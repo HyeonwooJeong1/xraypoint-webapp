@@ -2,6 +2,18 @@
 (function (root) {
   "use strict";
   function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+  const kneeModes = Object.freeze({
+    ensemble: "앙상블 (B0 + HRNet)", b0: "B0 단독", hrnet: "HRNet 단독",
+  });
+  function kneeMembers(meta, mode) {
+    if (!Object.hasOwn(kneeModes, mode)) throw new Error("알 수 없는 무릎 모델입니다");
+    const members = meta.knee.ensemble.members;
+    if (mode === "ensemble") return [...members];
+    if (mode === "b0") return ["knee"];
+    const hrnet = members.find(name => name !== "knee");
+    if (!hrnet) throw new Error("HRNet 모델 구성이 없습니다");
+    return [hrnet];
+  }
 
   function validateMetadata(meta) {
     const base = meta?.knee;
@@ -59,7 +71,7 @@
     }
   }
 
-  const api = { validateMetadata, predictHeatmaps };
+  const api = { validateMetadata, predictHeatmaps, kneeModes, kneeMembers };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.XrayEnsemble = api;
 })(globalThis);
