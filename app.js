@@ -8,6 +8,8 @@ ort.env.wasm.numThreads = 1; // cross-origin isolation 없이 동작
 
 const MODELS = {};   // name -> ort.InferenceSession
 let META = null;     // models/meta.json
+let modelsReady = false;
+let processingQueue = false;
 
 // ---------- 상태 ----------
 const state = {
@@ -33,6 +35,9 @@ const MEASURE_LINES = { // 측정 항목별 축선 (true = 점선)
   WBL:  [["p1","p14",true]],
 };
 const PT_ORDER = ["p1","p2","p3","p4","p5","p6","p7","p8","p9","p10","p11","p12","p13","p14","p15"];
+// stage1 신뢰도 하한 — infer.py Predictor(min_score=0.3)와 반드시 같은 값을 유지할 것
+const MIN_S1_SCORE = 0.3;
+const LOWLBL = { hip_center: "골반", knee_center: "무릎", ankle_center: "발목" };
 
 // ---------- 수학/영상 유틸 (파이썬 파이프라인 이식) ----------
 function toGray(imgData) { // ImageData -> Float32Array [0,1]
@@ -65,7 +70,7 @@ function blur5(src, H, W) {
 
 // DARK 서브픽셀 디코딩 (heatmap.py _dark_refine 이식)
 function decodeHeatmaps(data, C, H, W) {
-  const coords = [];
+  const coords = [], scores = [];
   for (let c = 0; c < C; c++) {
     const ch = data.subarray(c*H*W, (c+1)*H*W);
     let best = -Infinity, bi = 0;
@@ -86,8 +91,9 @@ function decodeHeatmaps(data, C, H, W) {
       }
     }
     coords.push([fx, fy]);
+    scores.push(best); // 히트맵 피크 = 신뢰도 (infer.py decode_heatmaps 등가)
   }
-  return coords;
+  return { coords, scores };
 }
 
 function calcAngles(pts, side) {
@@ -114,14 +120,22 @@ function calcAngles(pts, side) {
 
 // ---------- 모델 로딩 ----------
 async function loadModels() {
-  META = await (await fetch("models/meta.json")).json();
-  const names = ["stage1", "hip", "knee", "ankle"];
+  const response = await fetch("models/meta.json", { cache: "no-store" });
+  if (!response.ok) throw new Error(`모델 정보 HTTP ${response.status}`);
+  META = await response.json();
+  const names = XrayEnsemble.validateMetadata(META);
   for (let i = 0; i < names.length; i++) {
-    setStatus(`모델 로딩 ${i+1}/4 (${names[i]})…`);
-    MODELS[names[i]] = await ort.InferenceSession.create(`models/${names[i]}.onnx`,
-      { executionProviders: ["wasm"] });
+    const m = META[names[i]];
+    setStatus(`모델 로딩 ${i+1}/${names.length}…`);
+    const assetUrl = (file, hash) => new URL(`models/${file}?v=${hash.slice(0, 12)}`, location.href).href;
+    MODELS[names[i]] = await ort.InferenceSession.create(assetUrl(m.file, m.sha256), {
+      executionProviders: ["wasm"],
+      externalData: (m.external_data || []).map(f => ({ path: f.path, data: assetUrl(f.path, f.sha256) })),
+    });
   }
-  setStatus("준비 완료 — X-ray를 열어주세요");
+  modelsReady = true;
+  $("file").disabled = false;
+  setStatus("준비 완료 — 무릎 앙상블 · X-ray를 열어주세요");
 }
 
 // ---------- 추론 파이프라인 ----------
@@ -133,8 +147,10 @@ function canvasGrayTensor(cv) { // canvas -> ort.Tensor [1,1,H,W]
 
 async function runModel(name, cv) {
   const { tensor } = canvasGrayTensor(cv);
-  const out = await MODELS[name].run({ image: tensor });
-  const hm = out.heatmaps;
+  const m = META[name];
+  const names = name === "knee" ? m.ensemble.members : [name];
+  const hm = await XrayEnsemble.predictHeatmaps(MODELS, names, tensor,
+    [1, m.channels, m.input[2], m.input[3]]);
   const [, C, H, W] = hm.dims;
   return decodeHeatmaps(hm.data, C, H, W);
 }
@@ -165,14 +181,29 @@ async function predictLeg(img, side) { // img: {bitmap, W, H} -> {points, angles
   const ox = Math.floor((tw - nw) / 2), oy = Math.floor((th - nh) / 2);
   const lb = makeCanvas(tw, th);
   lb.getContext("2d").drawImage(half, 0, 0, hw, img.H, ox, oy, nw, nh);
-  const s1coords = await runModel("stage1", lb);
+  const { coords: s1coords, scores: s1scores } = await runModel("stage1", lb);
   const centers = {};
   s1meta.landmarks.forEach((n, i) =>
     centers[n] = [(s1coords[i][0] - ox) / scale, (s1coords[i][1] - oy) / scale]);
 
+  // stage1 신뢰도 게이트 (infer.py min_score=0.3 등가).
+  // 실제 사례(2026-08-26): THA 스템이 대퇴골을 채운 영상에서 knee_center 신뢰도가
+  // 0.003으로 붕괴 → ROI가 발목에 잡혀 MPTA 148도, mHKA 150도가 경고 없이 출력됨.
+  // 확신에 찬 오답이 무측정보다 위험하므로 해당 관절을 빼고 경고를 남긴다.
+  const warnings = [];
+  const low = new Set();
+  s1meta.landmarks.forEach((n, i) => {
+    if (s1scores[i] < MIN_S1_SCORE) { low.add(n); warnings.push(`${LOWLBL[n] || n} 인식 실패`); }
+  });
+
   const L = Math.hypot(centers.hip_center[0] - centers.ankle_center[0],
                        centers.hip_center[1] - centers.ankle_center[1]);
   if (!isFinite(L) || L <= 1) return null;
+  // 골반/발목 중심은 다리 길이 = 모든 ROI 크기를 정하므로 하나라도 못 믿으면 전부 무의미
+  if (low.has("hip_center") || low.has("ankle_center")) {
+    return { points: {}, angles: {}, edited: new Set(),
+             warnings: ["다리 축 인식 실패 — 측정할 수 없습니다"] };
+  }
 
   // [2] 관절별 ROI → 정밀 예측기 → 역변환 (crop_roi/AffineMap 등가)
   const points = {};
@@ -181,11 +212,12 @@ async function predictLeg(img, side) { // img: {bitmap, W, H} -> {points, angles
     const out = m.input[2];
     const sideLen = m.roi.ratio * L;
     const ck = { hip: "hip_center", knee: "knee_center", ankle: "ankle_center" }[joint];
+    if (low.has(ck)) continue; // ROI 중심을 못 믿으면 이 관절 랜드마크 전체가 무의미
     const [cx, cy] = centers[ck];
     const x0 = cx - sideLen / 2, y0 = cy - sideLen / 2;
     const roi = makeCanvas(out, out);
     roi.getContext("2d").drawImage(half, x0, y0, sideLen, sideLen, 0, 0, out, out);
-    const coords = await runModel(joint, roi);
+    const { coords } = await runModel(joint, roi);
     const s = out / sideLen;
     m.landmarks.forEach((n, i) => {
       const hx = coords[i][0] / s + x0, hy = coords[i][1] / s + y0; // 반다리 좌표
@@ -194,7 +226,7 @@ async function predictLeg(img, side) { // img: {bitmap, W, H} -> {points, angles
       points[n] = [fx, hy];
     });
   }
-  return { points, angles: calcAngles(points, side), edited: new Set() };
+  return { points, angles: calcAngles(points, side), edited: new Set(), warnings };
 }
 
 async function processImage(entry) {
@@ -208,7 +240,7 @@ async function processImage(entry) {
       await new Promise(r => setTimeout(r, 0)); // UI 갱신 양보
     }
   } catch (e) {
-    console.error(e); entry.status = "실패: " + e.message;
+    console.error(e); entry.legs = null; entry.status = "실패: " + e.message;
   }
   renderList(); renderAll();
   updateCsvButtons();
@@ -216,6 +248,7 @@ async function processImage(entry) {
 
 // ---------- 파일 입력 ----------
 async function addFiles(files) {
+  if (!modelsReady) { alert("모델 준비가 완료된 뒤 이미지를 열어주세요."); return; }
   for (const f of files) {
     const bitmap = await createImageBitmap(f);
     const entry = { name: f.name, bitmap, W: bitmap.width, H: bitmap.height,
@@ -224,8 +257,12 @@ async function addFiles(files) {
     if (state.cur < 0) selectImage(state.images.length - 1);
   }
   renderList();
-  for (const entry of state.images) if (!entry.legs && !entry.status.startsWith("실패"))
-    await processImage(entry);
+  if (processingQueue) return;
+  processingQueue = true;
+  try {
+    for (const entry of state.images) if (!entry.legs && !entry.status.startsWith("실패"))
+      await processImage(entry);
+  } finally { processingQueue = false; }
 }
 
 function selectImage(i) {
@@ -268,6 +305,15 @@ function renderAngles() {
          `<td${dimS("left")}>${fmtAng(l, n)}</td></tr>`;
   });
   h += "</table>";
+  // stage1 인식 실패 경고 — 확신에 찬 오답을 그대로 보여주지 않기 위함
+  ["right", "left"].forEach(k => {
+    const w = im.legs[k] && im.legs[k].warnings;
+    if (w && w.length) {
+      h += `<div class="sec" style="color:#ff6b6b;font-weight:600">` +
+           `⚠ ${k === "right" ? "오른쪽" : "왼쪽"}: ${w.join(", ")} — 해당 값은 표시하지 ` +
+           `않습니다. 직접 확인하세요.</div>`;
+    }
+  });
   const ed = ["right","left"].reduce((s, k) => s + (im.legs[k] ? im.legs[k].edited.size : 0), 0);
   if (ed) h += `<div class="sec">수정된 점 ${ed}개 반영됨</div>`;
   el.innerHTML = h;
@@ -770,4 +816,14 @@ window.addEventListener("drop", e => {
 });
 window.addEventListener("resize", renderAll);
 
-loadModels().catch(e => setStatus("모델 로딩 실패: " + e.message));
+loadModels().catch(async e => {
+  modelsReady = false;
+  $("file").disabled = true;
+  setStatus("모델 로딩 실패 — 새로고침 후 다시 시도하세요: " + e.message);
+  const sessions = Object.values(MODELS);
+  for (const name of Object.keys(MODELS)) delete MODELS[name];
+  for (const session of sessions) {
+    try { await session.release(); }
+    catch (cleanupError) { console.warn("모델 세션 정리 실패", cleanupError); }
+  }
+});

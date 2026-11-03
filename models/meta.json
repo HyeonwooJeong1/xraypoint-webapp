@@ -14,7 +14,10 @@
     ],
     "sigma": 4.0,
     "roi": null,
-    "size_mb": 23.4
+    "size_mb": 23.4,
+    "file": "stage1.onnx",
+    "sha256": "61c9f2d95a0b61cb19931392bdf22a0e1372fc8014ab29d81fc546f26d16045c",
+    "bytes": 23409302
   },
   "hip": {
     "input": [
@@ -37,7 +40,10 @@
       "ratio": 0.16,
       "jitter": 0.1
     },
-    "size_mb": 23.4
+    "size_mb": 23.4,
+    "file": "hip.onnx",
+    "sha256": "4325f66c00de7899d51c77025654b48ab0416f7ae5d623060b06514da1e39c4e",
+    "bytes": 23408142
   },
   "knee": {
     "input": [
@@ -80,7 +86,20 @@
       "ratio": 0.24,
       "jitter": 0.1
     },
-    "size_mb": 23.4
+    "size_mb": 23.4,
+    "source_checkpoint": "knee_fix",
+    "checkpoint_sha256": "e9191f2d768203e469238f8a559ed141f502b7184021a86b2e70ec259112b2db",
+    "preprocessing": "grayscale_0_1",
+    "ensemble": {
+      "method": "heatmap_mean",
+      "members": [
+        "knee",
+        "knee_hrnet_cur"
+      ]
+    },
+    "file": "knee.onnx",
+    "sha256": "cc14e5079c94b51ee60994dbaa2d4556b9cf83f15032fbac01f6a2870607e88a",
+    "bytes": 23413942
   },
   "ankle": {
     "input": [
@@ -107,6 +126,75 @@
       "ratio": 0.1,
       "jitter": 0.1
     },
-    "size_mb": 23.4
-  }
+    "size_mb": 23.4,
+    "file": "ankle.onnx",
+    "sha256": "db7aeae66d565bba1a4202b89e62ce6e751f6d7296071b938fc5d0288f5664ae",
+    "bytes": 23409302
+  },
+  "knee_hrnet_cur": {
+    "input": [
+      1,
+      1,
+      384,
+      384
+    ],
+    "channels": 11,
+    "landmarks": [
+      "p2",
+      "p3",
+      "p4",
+      "p5",
+      "p6",
+      "p7",
+      "p8",
+      "p9",
+      "p10",
+      "p11",
+      "p15"
+    ],
+    "sigma": 4.0,
+    "roi": {
+      "center_landmarks": [
+        "p2",
+        "p3",
+        "p4",
+        "p5",
+        "p6",
+        "p7",
+        "p8",
+        "p9",
+        "p10",
+        "p11",
+        "p15"
+      ],
+      "hip_landmark": "hip_center",
+      "ankle_landmark": "ankle_center",
+      "ratio": 0.24,
+      "jitter": 0.1
+    },
+    "preprocessing": "grayscale_0_1",
+    "source_checkpoint": "knee_hrnet_cur",
+    "checkpoint_sha256": "21c48b3f105c6974e55ebb0a86654480b9f6ead5af475228eed878a96168f68d",
+    "external_data": [
+      {
+        "path": "knee_hrnet_cur.weights-1.bin",
+        "sha256": "03c0d9a68ce187cbb92d0396d6b43256c107dae9a4725923c04fd0a815c94885",
+        "bytes": 48056768
+      },
+      {
+        "path": "knee_hrnet_cur.weights-2.bin",
+        "sha256": "cb09eb0ac36b0713c654934dc58e32bf639568b23f153af86441cda2a847c02a",
+        "bytes": 49327104
+      },
+      {
+        "path": "knee_hrnet_cur.weights-3.bin",
+        "sha256": "64b568607f827c8024746de5aea526f3d91655e609fda0a674670cad71fb8e3e",
+        "bytes": 46349312
+      }
+    ],
+    "file": "knee_hrnet_cur.onnx",
+    "sha256": "ef39353236684a643039088895089d6056fc30bbf7791e17c99c470f3949d812",
+    "bytes": 382919
+  },
+  "release": "knee-ensemble-20261103-v1"
 }
