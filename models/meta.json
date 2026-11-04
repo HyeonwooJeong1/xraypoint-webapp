@@ -1,25 +1,5 @@
 {
-  "stage1": {
-    "input": [
-      1,
-      1,
-      512,
-      256
-    ],
-    "channels": 3,
-    "landmarks": [
-      "hip_center",
-      "knee_center",
-      "ankle_center"
-    ],
-    "sigma": 4.0,
-    "roi": null,
-    "size_mb": 23.4,
-    "file": "stage1.onnx",
-    "sha256": "61c9f2d95a0b61cb19931392bdf22a0e1372fc8014ab29d81fc546f26d16045c",
-    "bytes": 23409302
-  },
-  "hip": {
+  "hip_90": {
     "input": [
       1,
       1,
@@ -40,12 +20,104 @@
       "ratio": 0.16,
       "jitter": 0.1
     },
-    "size_mb": 23.4,
-    "file": "hip.onnx",
-    "sha256": "4325f66c00de7899d51c77025654b48ab0416f7ae5d623060b06514da1e39c4e",
-    "bytes": 23408142
+    "preprocessing": "grayscale_0_1",
+    "source_checkpoint": "hip_90",
+    "checkpoint_sha256": "4cd6eae83aaff75a7a867123054f280130932b0ef523bf4801b89d0f28ea3a3f",
+    "file": "hip_90.onnx",
+    "sha256": "cb72c534d248c704beaff13db9cc4b5c64fe6db617552f46a79a98bf21582401",
+    "bytes": 164998,
+    "external_data": [
+      {
+        "path": "hip_90.weights-1.bin",
+        "sha256": "fb7a7078a980789d310a73cd80276fbea08c6bf734a3f3d0c7a100fcd5c3110b",
+        "bytes": 23251328
+      }
+    ],
+    "title": "골반 B0",
+    "description": "현재 라벨 · 90/10",
+    "parameter_count": 6250893,
+    "joint": "hip",
+    "data_generation": "fixed-labels-90-10",
+    "encoder": "efficientnet-b0",
+    "decoder_channels": [
+      256,
+      128,
+      64,
+      32,
+      16
+    ],
+    "training_split": [
+      0.9,
+      0.1,
+      0.0
+    ],
+    "download_bytes": 23416326
   },
-  "knee": {
+  "hip_hrnet_90": {
+    "input": [
+      1,
+      1,
+      256,
+      256
+    ],
+    "channels": 1,
+    "landmarks": [
+      "p1"
+    ],
+    "sigma": 4.0,
+    "roi": {
+      "center_landmarks": [
+        "p1"
+      ],
+      "hip_landmark": "hip_center",
+      "ankle_landmark": "ankle_center",
+      "ratio": 0.16,
+      "jitter": 0.1
+    },
+    "preprocessing": "grayscale_0_1",
+    "source_checkpoint": "hip_hrnet_90",
+    "checkpoint_sha256": "b171a70aeb696bc2add839ce2f89635675ce5229a459ab0866e4b9e680715612",
+    "file": "hip_hrnet_90.onnx",
+    "sha256": "b8ff2eb8f5fdf49b55409502226d8ff52a25d0a97e3ad2b06ef59f49d5d53f88",
+    "bytes": 382623,
+    "external_data": [
+      {
+        "path": "hip_hrnet_90.weights-1.bin",
+        "sha256": "849ddb2fc251772369de31f7adc06b12d1dee1fa0624d43328e7a9c5cb1aaa8c",
+        "bytes": 48050432
+      },
+      {
+        "path": "hip_hrnet_90.weights-2.bin",
+        "sha256": "be63cf6c0765b47c1b501c0ec09ca30934f55253501279262e89f89b759fed29",
+        "bytes": 49327104
+      },
+      {
+        "path": "hip_hrnet_90.weights-3.bin",
+        "sha256": "d3507f236ccf75d62bfeec5baf300022f6c2f8d7a4175955696931ea21933e8c",
+        "bytes": 46349312
+      }
+    ],
+    "title": "골반 HRNet-W32",
+    "description": "현재 라벨 · 90/10",
+    "parameter_count": 35986193,
+    "joint": "hip",
+    "data_generation": "fixed-labels-90-10",
+    "encoder": "tu-hrnet_w32",
+    "decoder_channels": [
+      256,
+      128,
+      64,
+      32,
+      16
+    ],
+    "training_split": [
+      0.9,
+      0.1,
+      0.0
+    ],
+    "download_bytes": 144109471
+  },
+  "knee_90": {
     "input": [
       1,
       1,
@@ -86,22 +158,124 @@
       "ratio": 0.24,
       "jitter": 0.1
     },
-    "size_mb": 23.4,
-    "source_checkpoint": "knee_fix",
-    "checkpoint_sha256": "e9191f2d768203e469238f8a559ed141f502b7184021a86b2e70ec259112b2db",
     "preprocessing": "grayscale_0_1",
-    "ensemble": {
-      "method": "heatmap_mean",
-      "members": [
-        "knee",
-        "knee_hrnet_cur"
-      ]
-    },
-    "file": "knee.onnx",
-    "sha256": "cc14e5079c94b51ee60994dbaa2d4556b9cf83f15032fbac01f6a2870607e88a",
-    "bytes": 23413942
+    "source_checkpoint": "knee_90",
+    "checkpoint_sha256": "8db48d93a5655b83996316c25c0b8658af6f67e48aae8544754759a59f593f2e",
+    "file": "knee_90.onnx",
+    "sha256": "d02272270478b16fcb4fe94689da173e43544483f72f721bf5c15ec860291417",
+    "bytes": 164653,
+    "external_data": [
+      {
+        "path": "knee_90.weights-1.bin",
+        "sha256": "edcbbdb7160715961f2350406a86893790fbb620c3367d63c26930fde3b37848",
+        "bytes": 23257664
+      }
+    ],
+    "title": "B0 · 90/10",
+    "description": "90/10 분할로 재학습",
+    "parameter_count": 6252343,
+    "joint": "knee",
+    "data_generation": "fixed-labels-90-10",
+    "encoder": "efficientnet-b0",
+    "decoder_channels": [
+      256,
+      128,
+      64,
+      32,
+      16
+    ],
+    "training_split": [
+      0.9,
+      0.1,
+      0.0
+    ],
+    "download_bytes": 23422317
   },
-  "ankle": {
+  "knee_hrnet_90": {
+    "input": [
+      1,
+      1,
+      384,
+      384
+    ],
+    "channels": 11,
+    "landmarks": [
+      "p2",
+      "p3",
+      "p4",
+      "p5",
+      "p6",
+      "p7",
+      "p8",
+      "p9",
+      "p10",
+      "p11",
+      "p15"
+    ],
+    "sigma": 4.0,
+    "roi": {
+      "center_landmarks": [
+        "p2",
+        "p3",
+        "p4",
+        "p5",
+        "p6",
+        "p7",
+        "p8",
+        "p9",
+        "p10",
+        "p11",
+        "p15"
+      ],
+      "hip_landmark": "hip_center",
+      "ankle_landmark": "ankle_center",
+      "ratio": 0.24,
+      "jitter": 0.1
+    },
+    "preprocessing": "grayscale_0_1",
+    "source_checkpoint": "knee_hrnet_90",
+    "checkpoint_sha256": "4efc93548a404c632c47671fd148fd007337c01b8b3882ab8f83289c869b8330",
+    "file": "knee_hrnet_90.onnx",
+    "sha256": "c35554c9e2ab41ed7e2fd1997e8f470595e91ded0150c0298d392da70b4e1ef9",
+    "bytes": 382538,
+    "external_data": [
+      {
+        "path": "knee_hrnet_90.weights-1.bin",
+        "sha256": "063e3af7f193636c7254921e65e7f5c2ca3b6118f1e3e19959b539a25038ca72",
+        "bytes": 48056768
+      },
+      {
+        "path": "knee_hrnet_90.weights-2.bin",
+        "sha256": "12ad089995ee4c143dee02d48b137cd6e7700b63c25843dea90b2f299bb7d1a6",
+        "bytes": 49327104
+      },
+      {
+        "path": "knee_hrnet_90.weights-3.bin",
+        "sha256": "c4939f4548d67afc0b551d4dffa7851403ef546439419e5bd8b18fbf9de1bff1",
+        "bytes": 46349312
+      }
+    ],
+    "title": "HRNet-W32 · 90/10",
+    "description": "90/10 분할로 재학습",
+    "parameter_count": 35987643,
+    "joint": "knee",
+    "data_generation": "fixed-labels-90-10",
+    "encoder": "tu-hrnet_w32",
+    "decoder_channels": [
+      256,
+      128,
+      64,
+      32,
+      16
+    ],
+    "training_split": [
+      0.9,
+      0.1,
+      0.0
+    ],
+    "download_bytes": 144115722
+  },
+  "ankle_90": {
     "input": [
       1,
       1,
@@ -126,75 +300,167 @@
       "ratio": 0.1,
       "jitter": 0.1
     },
-    "size_mb": 23.4,
-    "file": "ankle.onnx",
-    "sha256": "db7aeae66d565bba1a4202b89e62ce6e751f6d7296071b938fc5d0288f5664ae",
-    "bytes": 23409302
+    "preprocessing": "grayscale_0_1",
+    "source_checkpoint": "ankle_90",
+    "checkpoint_sha256": "24ef227c570cae7bf898a714c7ec4f90a6c4aa78c4bbd82ff0591f8abb6dcd45",
+    "file": "ankle_90.onnx",
+    "sha256": "de64117716bd332db35b0950a41874c5657c7c4de3102bd7d47db2e5889d4b81",
+    "bytes": 164745,
+    "external_data": [
+      {
+        "path": "ankle_90.weights-1.bin",
+        "sha256": "8e931f05fb520a3f1a74f03e5600aac96756b861becde50b14e3b5d9687dbecc",
+        "bytes": 23253056
+      }
+    ],
+    "title": "발목 B0",
+    "description": "현재 라벨 · 90/10",
+    "parameter_count": 6251183,
+    "joint": "ankle",
+    "data_generation": "fixed-labels-90-10",
+    "encoder": "efficientnet-b0",
+    "decoder_channels": [
+      256,
+      128,
+      64,
+      32,
+      16
+    ],
+    "training_split": [
+      0.9,
+      0.1,
+      0.0
+    ],
+    "download_bytes": 23417801
   },
-  "knee_hrnet_cur": {
+  "ankle_hrnet_90": {
     "input": [
       1,
       1,
-      384,
-      384
+      256,
+      256
     ],
-    "channels": 11,
+    "channels": 3,
     "landmarks": [
-      "p2",
-      "p3",
-      "p4",
-      "p5",
-      "p6",
-      "p7",
-      "p8",
-      "p9",
-      "p10",
-      "p11",
-      "p15"
+      "p12",
+      "p13",
+      "p14"
     ],
     "sigma": 4.0,
     "roi": {
       "center_landmarks": [
-        "p2",
-        "p3",
-        "p4",
-        "p5",
-        "p6",
-        "p7",
-        "p8",
-        "p9",
-        "p10",
-        "p11",
-        "p15"
+        "p12",
+        "p13",
+        "p14"
       ],
       "hip_landmark": "hip_center",
       "ankle_landmark": "ankle_center",
-      "ratio": 0.24,
+      "ratio": 0.1,
       "jitter": 0.1
     },
     "preprocessing": "grayscale_0_1",
-    "source_checkpoint": "knee_hrnet_cur",
-    "checkpoint_sha256": "21c48b3f105c6974e55ebb0a86654480b9f6ead5af475228eed878a96168f68d",
+    "source_checkpoint": "ankle_hrnet_90",
+    "checkpoint_sha256": "5e803c445bd78abf0730dfd80a82de6490149ea54a747ff1829b93fa79d44371",
+    "file": "ankle_hrnet_90.onnx",
+    "sha256": "16f00b2546264db43288785fa46d690becaabe39e4c68e5cb80bf7a62c678afd",
+    "bytes": 382887,
     "external_data": [
       {
-        "path": "knee_hrnet_cur.weights-1.bin",
-        "sha256": "03c0d9a68ce187cbb92d0396d6b43256c107dae9a4725923c04fd0a815c94885",
-        "bytes": 48056768
+        "path": "ankle_hrnet_90.weights-1.bin",
+        "sha256": "6a5ec56698093448a76758527438e7a5257700ef788ab243b6aa39fe8a8a3edd",
+        "bytes": 48052160
       },
       {
-        "path": "knee_hrnet_cur.weights-2.bin",
-        "sha256": "cb09eb0ac36b0713c654934dc58e32bf639568b23f153af86441cda2a847c02a",
+        "path": "ankle_hrnet_90.weights-2.bin",
+        "sha256": "5f639650f9ab85ef7ff070cbb17298c67ea7a1db836252c075c41950da0b6777",
         "bytes": 49327104
       },
       {
-        "path": "knee_hrnet_cur.weights-3.bin",
-        "sha256": "64b568607f827c8024746de5aea526f3d91655e609fda0a674670cad71fb8e3e",
+        "path": "ankle_hrnet_90.weights-3.bin",
+        "sha256": "c5718a0eab31dd20799d41892c72342505892066e761a63c956fad716fc40cfb",
         "bytes": 46349312
       }
     ],
-    "file": "knee_hrnet_cur.onnx",
-    "sha256": "ef39353236684a643039088895089d6056fc30bbf7791e17c99c470f3949d812",
-    "bytes": 382919
+    "title": "발목 HRNet-W32",
+    "description": "현재 라벨 · 90/10",
+    "parameter_count": 35986483,
+    "joint": "ankle",
+    "data_generation": "fixed-labels-90-10",
+    "encoder": "tu-hrnet_w32",
+    "decoder_channels": [
+      256,
+      128,
+      64,
+      32,
+      16
+    ],
+    "training_split": [
+      0.9,
+      0.1,
+      0.0
+    ],
+    "download_bytes": 144111463
   },
-  "release": "knee-ensemble-20261103-v1"
+  "stage1": {
+    "status": "ready",
+    "title": "관절 위치 B0",
+    "source_checkpoint": "stage1_90",
+    "checkpoint_sha256": "b0e003738098b24df1fb70a4b67dc6cc49a6ffb263008d5d96524495c51a0aa7",
+    "input": [
+      1,
+      1,
+      512,
+      256
+    ],
+    "channels": 3,
+    "landmarks": [
+      "hip_center",
+      "knee_center",
+      "ankle_center"
+    ],
+    "sigma": 4.0,
+    "preprocessing": "grayscale_0_1",
+    "training_split": [
+      0.9,
+      0.1,
+      0
+    ],
+    "data_generation": "fixed-labels-90-10",
+    "parameter_count": 6251183,
+    "encoder": "efficientnet-b0",
+    "file": "stage1_90.onnx",
+    "sha256": "47398b210a19cf6fcde4bea5b5fd3b21ef0b3f0c49645657d3f35c3944502ca6",
+    "bytes": 164869,
+    "external_data": [
+      {
+        "path": "stage1_90.weights-1.bin",
+        "sha256": "879bfa528cc698bca8bb9f01dcecd41853c4f821fd2d144e87fb68b17cb6aed1",
+        "bytes": 23253056
+      }
+    ],
+    "download_bytes": 23417925
+  },
+  "catalog": {
+    "models": [
+      "hip_90",
+      "hip_hrnet_90",
+      "knee_90",
+      "knee_hrnet_90",
+      "ankle_90",
+      "ankle_hrnet_90"
+    ],
+    "defaults": {
+      "hip": [
+        "hip_90"
+      ],
+      "knee": [
+        "knee_90",
+        "knee_hrnet_90"
+      ],
+      "ankle": [
+        "ankle_90"
+      ]
+    }
+  },
+  "release": "knee-model-catalog-20261103-v3"
 }

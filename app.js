@@ -10,12 +10,15 @@ const MODELS = {};   // name -> ort.InferenceSession
 let META = null;     // models/meta.json
 let modelsReady = false;
 let processingQueue = false;
+let assetStore, catalogDraft, assetBusy = false, storageWarning = "";
+const cachedModels = new Set(), downloadState = {};
+const JOINT_LABELS = { hip: "골반", knee: "무릎", ankle: "발목" };
 
 // ---------- 상태 ----------
 const state = {
-  images: [],   // each image owns kneeMode, results[mode], and the active legs
+  images: [],   // each image owns modelKey, results[key], and the active legs
   cur: -1,
-  kneeMode: "ensemble", // default for new images; selected image has its own mode
+  modelKey: null,
   showPts: true, showAxes: true, showNames: false,
   angOn: { mHKA: true, MPTA: true, LDFA: true, JLCA: true, WBL: true },
   sideOn: { right: true, left: true }, // 환자 기준 좌우
@@ -124,20 +127,122 @@ async function loadModels() {
   const response = await fetch("models/meta.json", { cache: "no-store" });
   if (!response.ok) throw new Error(`모델 정보 HTTP ${response.status}`);
   META = await response.json();
-  const names = XrayEnsemble.validateMetadata(META);
-  for (let i = 0; i < names.length; i++) {
-    const m = META[names[i]];
-    setStatus(`모델 로딩 ${i+1}/${names.length}…`);
-    const assetUrl = (file, hash) => new URL(`models/${file}?v=${hash.slice(0, 12)}`, location.href).href;
-    MODELS[names[i]] = await ort.InferenceSession.create(assetUrl(m.file, m.sha256), {
-      executionProviders: ["wasm"],
-      externalData: (m.external_data || []).map(f => ({ path: f.path, data: assetUrl(f.path, f.sha256) })),
-    });
+  XrayEnsemble.validateMetadata(META);
+  state.modelKey = XrayEnsemble.selectionKey(META, META.catalog.defaults);
+  catalogDraft = XrayEnsemble.selectedModels(META, state.modelKey);
+  assetStore = XrayEnsemble.createAssetStore({baseUrl:location.href, onStorageError:() => {
+    storageWarning = "모델을 영구 저장하지 못했습니다. 다음 접속 때 다시 다운로드할 수 있습니다.";
+  }});
+  for (const id of META.catalog.models) if (await assetStore.has(META[id])) cachedModels.add(id);
+  $("btn-models").disabled = false;
+  renderCatalog(); updateModelSummary();
+  if (META.stage1.status !== "ready") {
+    setStatus("최신 stage1 학습 중 — 완료 후 영상 분석을 사용할 수 있습니다");
+    return;
   }
+  await assetStore.prune([META.stage1,...META.catalog.models.map(n=>META[n])]);
+  assetBusy = true; renderCatalog();
+  try { await ensureModels(state.modelKey); }
+  finally { assetBusy = false; renderCatalog(); }
   modelsReady = true;
   $("file").disabled = false;
-  $("knee-model").disabled = false;
-  setStatus("준비 완료 — 무릎 모델을 선택하고 X-ray를 열어주세요");
+  renderCatalog();
+  setStatus("준비 완료 — 기본 모델로 시작하거나 모델 목록에서 선택하세요");
+}
+
+async function ensureModels(key) {
+  const selected = XrayEnsemble.selectedModels(META,key);
+  const names = ["stage1",...XrayEnsemble.JOINTS.flatMap(j=>selected[j])];
+  for (const id of Object.keys(MODELS)) if (!names.includes(id)) {
+    const session = MODELS[id]; delete MODELS[id];
+    try { await session.release(); } catch (e) { console.warn("모델 세션 정리 실패",e); }
+  }
+  for (const id of names) {
+    if (MODELS[id]) continue;
+    const m = META[id], assets = XrayEnsemble.modelAssets(m), loaded = [];
+    let complete = 0;
+    for (const a of assets) {
+      const result = await assetStore.read(a, n=>setStatus(`${m.title || id} 준비 ${mb(complete+n)} / ${mb(m.download_bytes)} MB`));
+      loaded.push(result.bytes); complete += a.bytes;
+    }
+    MODELS[id] = await ort.InferenceSession.create(loaded[0], {
+      executionProviders:["wasm"],
+      externalData:assets.slice(1).map((a,i)=>({path:a.path,data:loaded[i+1]})),
+    });
+    if (await assetStore.has(m)) cachedModels.add(id);
+  }
+  renderCatalog();
+}
+
+function mb(bytes) { return (bytes/1e6).toFixed(1); }
+function modelLabel(key) {
+  const selected = XrayEnsemble.selectedModels(META,key);
+  return XrayEnsemble.JOINTS.map(j=>`${JOINT_LABELS[j]} ${selected[j].map(n=>META[n].encoder.includes("hrnet")?"HRNet":"B0").join("+")}`).join(" · ");
+}
+function updateModelSummary() { $("model-summary").textContent = state.modelKey ? modelLabel(state.modelKey) : ""; }
+function canSelectModel(id) {
+  return cachedModels.has(id) || !!MODELS[id] ||
+    (modelsReady && META.catalog.defaults[META[id].joint].includes(id));
+}
+function openCatalog() {
+  catalogDraft = XrayEnsemble.selectedModels(META,state.modelKey);
+  renderCatalog(); $("model-modal").style.display = "flex";
+}
+function renderCatalog() {
+  if (!META || !catalogDraft) return;
+  const list = $("model-list"); list.replaceChildren();
+  for (const joint of XrayEnsemble.JOINTS) {
+    const group = document.createElement("section"), title = document.createElement("h3");
+    title.textContent = JOINT_LABELS[joint]; group.append(title);
+    for (const id of META.catalog.models.filter(n=>META[n].joint===joint)) {
+      const m = META[id], row = document.createElement("div"); row.className = "model-row";
+      const check = document.createElement("input"); check.type = "checkbox"; check.dataset.model = id;
+      check.id = `pick-${id}`; check.checked = catalogDraft[joint].includes(id);
+      check.disabled = assetBusy || processingQueue || !canSelectModel(id);
+      check.onchange = () => {
+        catalogDraft[joint] = check.checked ? [...catalogDraft[joint],id] : catalogDraft[joint].filter(n=>n!==id);
+        renderCatalog();
+      };
+      const label = document.createElement("label"); label.htmlFor = check.id;
+      const strong = document.createElement("strong"); strong.textContent = m.title;
+      const detail = document.createElement("small");
+      detail.textContent = `${m.encoder} · ${(m.parameter_count/1e6).toFixed(2)}M 파라미터 · ${m.input[3]}×${m.input[2]} · ${mb(m.download_bytes)} MB`;
+      const description = document.createElement("small");
+      description.textContent = `${id} · 최신 라벨 · 학습 90% / 검증 10%${META.catalog.defaults[joint].includes(id)?" · 기본 선택":""}`;
+      label.append(strong,detail,description);
+      const action = document.createElement("button"); action.dataset.download = id;
+      action.textContent = downloadState[id] || (cachedModels.has(id)?"다운로드 완료":MODELS[id]?"브라우저에 저장":"다운로드");
+      action.disabled = assetBusy || processingQueue || cachedModels.has(id);
+      action.onclick = () => downloadModel(id);
+      row.append(check,label,action); group.append(row);
+    }
+    list.append(group);
+  }
+  let reason = "";
+  try { XrayEnsemble.selectedModels(META,catalogDraft); } catch(e) { reason = e.message; }
+  $("model-message").textContent = reason || storageWarning || "관절마다 1개 이상 선택하세요. 여러 모델은 히트맵을 같은 비중으로 평균합니다.";
+  $("model-apply").disabled = !modelsReady || assetBusy || processingQueue || !!reason;
+  $("model-default").disabled = assetBusy || processingQueue;
+  $("stage1-info").textContent = META.stage1.status === "ready"
+    ? `공통 위치 탐지: stage1_90 · 최신 라벨 / 90:10 · ${mb(META.stage1.download_bytes)} MB (자동 다운로드)`
+    : "공통 위치 탐지 stage1_90 재학습 중 — 다운로드는 가능하며, 영상 분석은 학습·검증 완료 후 열립니다.";
+}
+async function downloadModel(id) {
+  if (assetBusy || processingQueue) return;
+  assetBusy = true; downloadState[id] = "다운로드 중…"; renderCatalog();
+  $("file").disabled = true;
+  try {
+    await assetStore.download(META[id], n=>{
+      downloadState[id] = `${Math.floor(n/META[id].download_bytes*100)}%`;
+      const button = document.querySelector(`[data-download="${id}"]`);
+      if(button) button.textContent = downloadState[id];
+    });
+    cachedModels.add(id); delete downloadState[id];
+  } catch(e) { downloadState[id] = "재시도"; storageWarning = e.message; }
+  finally {
+    assetBusy = false; $("file").disabled = !modelsReady; renderCatalog();
+    if (modelsReady) await processQueue();
+  }
 }
 
 // ---------- 추론 파이프라인 ----------
@@ -147,10 +252,10 @@ function canvasGrayTensor(cv) { // canvas -> ort.Tensor [1,1,H,W]
   return { tensor: new ort.Tensor("float32", g, [1, 1, cv.height, cv.width]), gray: g };
 }
 
-async function runModel(name, cv, kneeMode) {
+async function runModel(name, cv, modelKey) {
   const { tensor } = canvasGrayTensor(cv);
-  const m = META[name];
-  const names = name === "knee" ? XrayEnsemble.kneeMembers(META, kneeMode) : [name];
+  const names = name === "stage1" ? [name] : XrayEnsemble.selectedModels(META,modelKey)[name];
+  const m = META[names[0]];
   const hm = await XrayEnsemble.predictHeatmaps(MODELS, names, tensor,
     [1, m.channels, m.input[2], m.input[3]]);
   const [, C, H, W] = hm.dims;
@@ -166,7 +271,7 @@ function makeCanvas(w, h) {
   return c;
 }
 
-async function predictLeg(img, side, kneeMode) { // model choice fixed for both legs
+async function predictLeg(img, side, modelKey) { // model choice fixed for both legs
   const hw = Math.floor(img.W / 2);
   // 반다리 캔버스 (왼쪽은 수평 반전해 오른쪽 방향으로 통일 — split_leg 등가)
   const half = makeCanvas(hw, img.H);
@@ -210,7 +315,7 @@ async function predictLeg(img, side, kneeMode) { // model choice fixed for both 
   // [2] 관절별 ROI → 정밀 예측기 → 역변환 (crop_roi/AffineMap 등가)
   const points = {};
   for (const joint of ["hip", "knee", "ankle"]) {
-    const m = META[joint];
+    const m = META[XrayEnsemble.selectedModels(META,modelKey)[joint][0]];
     const out = m.input[2];
     const sideLen = m.roi.ratio * L;
     const ck = { hip: "hip_center", knee: "knee_center", ankle: "ankle_center" }[joint];
@@ -219,7 +324,7 @@ async function predictLeg(img, side, kneeMode) { // model choice fixed for both 
     const x0 = cx - sideLen / 2, y0 = cy - sideLen / 2;
     const roi = makeCanvas(out, out);
     roi.getContext("2d").drawImage(half, x0, y0, sideLen, sideLen, 0, 0, out, out);
-    const { coords } = await runModel(joint, roi, kneeMode);
+    const { coords } = await runModel(joint, roi, modelKey);
     const s = out / sideLen;
     m.landmarks.forEach((n, i) => {
       const hx = coords[i][0] / s + x0, hy = coords[i][1] / s + y0; // 반다리 좌표
@@ -232,10 +337,11 @@ async function predictLeg(img, side, kneeMode) { // model choice fixed for both 
 }
 
 async function processImage(entry) {
-  const mode = entry.kneeMode;
+  const mode = entry.modelKey;
   entry.legs = null;
   entry.status = "분석 중…"; renderList(); renderAll(); updateCsvButtons();
   try {
+    await ensureModels(mode);
     const legs = {};
     for (const side of ["right", "left"]) {
       legs[side] = await predictLeg(entry, side, mode);
@@ -256,11 +362,12 @@ async function processImage(entry) {
 // ---------- 파일 입력 ----------
 async function addFiles(files) {
   if (!modelsReady) { alert("모델 준비가 완료된 뒤 이미지를 열어주세요."); return; }
-  const kneeMode = state.kneeMode; // capture before asynchronous image decoding
+  if (assetBusy) { alert("모델 다운로드가 끝난 뒤 이미지를 열어주세요."); return; }
+  const modelKey = state.modelKey; // capture before asynchronous image decoding
   for (const f of files) {
     const bitmap = await createImageBitmap(f);
     const entry = { name: f.name, bitmap, W: bitmap.width, H: bitmap.height,
-                    kneeMode, results: {}, legs: null, status: "대기" };
+                    modelKey, results: {}, legs: null, status: "대기" };
     state.images.push(entry);
     if (state.cur < 0) selectImage(state.images.length - 1);
   }
@@ -269,25 +376,30 @@ async function addFiles(files) {
 }
 
 async function processQueue() {
-  if (processingQueue) return;
+  if (processingQueue || assetBusy) return;
   processingQueue = true;
-  $("knee-model").disabled = true;
+  $("btn-models").disabled = true; renderCatalog();
   try {
     for (const entry of state.images) if (entry.status === "대기")
       await processImage(entry);
   } finally {
     processingQueue = false;
-    $("knee-model").disabled = !modelsReady;
+    $("btn-models").disabled = false; renderCatalog();
+    setStatus("준비 완료 — " + modelLabel(state.modelKey));
   }
 }
 
-async function chooseKneeModel(mode) {
-  if (!modelsReady || processingQueue) { $("knee-model").value = state.kneeMode; return; }
-  XrayEnsemble.kneeMembers(META, mode); // reject unknown modes before changing state
-  state.kneeMode = mode;
+async function chooseModels(choice) {
+  if (!modelsReady || processingQueue || assetBusy) return;
+  const selected = XrayEnsemble.selectedModels(META,choice);
+  if (XrayEnsemble.JOINTS.flatMap(j=>selected[j]).some(n=>!canSelectModel(n)))
+    throw new Error("선택한 모델을 먼저 다운로드하세요");
+  const mode = XrayEnsemble.selectionKey(META,selected);
+  state.modelKey = mode; updateModelSummary();
+  $("model-modal").style.display = "none";
   const entry = state.images[state.cur];
   if (!entry) return;
-  entry.kneeMode = mode;
+  entry.modelKey = mode;
   entry.legs = entry.results[mode] || null;
   entry.status = entry.legs ? "완료" : "대기";
   renderList(); renderAll(); updateCsvButtons();
@@ -296,8 +408,8 @@ async function chooseKneeModel(mode) {
 
 function selectImage(i) {
   state.cur = i;
-  state.kneeMode = state.images[i].kneeMode;
-  $("knee-model").value = state.kneeMode;
+  state.modelKey = state.images[i].modelKey;
+  updateModelSummary();
   state.zoom = { k: 1, tx: 0, ty: 0 };
   renderList(); renderAll(); updateCsvButtons();
 }
@@ -315,7 +427,7 @@ function renderList() {
     d.append(document.createTextNode(im.name));
     const status = document.createElement("div");
     status.className = "st";
-    status.textContent = `${XrayEnsemble.kneeModes[im.kneeMode]} · ${im.status}`;
+    status.textContent = `${modelLabel(im.modelKey)} · ${im.status}`;
     d.append(status);
     d.onclick = () => selectImage(i);
     el.appendChild(d);
@@ -331,7 +443,7 @@ function renderAngles() {
   const im = state.images[state.cur];
   if (!im || !im.legs) { el.innerHTML = '<div class="sec">분석 대기 중…</div>'; return; }
   const dimS = s => state.sideOn[s] ? "" : ' style="opacity:.35"';
-  let h = `<div class="sec">분석 모델: ${XrayEnsemble.kneeModes[im.kneeMode]}</div>` +
+  let h = `<div class="sec">분석 모델: ${modelLabel(im.modelKey)}</div>` +
     `<table><tr><th></th><th${dimS("right")}>오른쪽</th><th${dimS("left")}>왼쪽</th></tr>`;
   MEASURES.forEach((n, i) => {
     const r = im.legs.right ? im.legs.right.angles[n] : undefined;
@@ -373,7 +485,7 @@ function renderCanvas() {
   cctx.clearRect(0, 0, W, H);
   const im = state.images[state.cur];
   if (!im) return;
-  $("cvtitle").textContent = `${im.name} (${im.W}×${im.H}) · ${XrayEnsemble.kneeModes[im.kneeMode]}`;
+  $("cvtitle").textContent = `${im.name} (${im.W}×${im.H}) · ${modelLabel(im.modelKey)}`;
   const { S, OX, OY } = viewTransform(im);
   cctx.imageSmoothingEnabled = S < 3;
   cctx.drawImage(im.bitmap, OX, OY, im.W * S, im.H * S);
@@ -430,7 +542,8 @@ const JOINT_KO = { hip: "골반", knee: "무릎", ankle: "발목" };
 
 function drawInset(cnv, im, side, joint, u = 1) { // u: 표기 스케일 (내보내기용 확대)
   const leg = im.legs[side];
-  const ps = META[joint].landmarks.map(n => leg.points[n]).filter(Boolean);
+  const selected = XrayEnsemble.selectedModels(META,im.modelKey);
+  const ps = META[selected[joint][0]].landmarks.map(n => leg.points[n]).filter(Boolean);
   if (!ps.length) return;
   const xs = ps.map(p => p[0]), ys = ps.map(p => p[1]);
   const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
@@ -579,14 +692,15 @@ function csvRows(im) {
       row.push(p ? p[0].toFixed(1) : "", p ? p[1].toFixed(1) : "");
     }
     row.push(leg.edited.size ? [...leg.edited].join(";") : "");
-    row.push(kneeModelId(im));
+    row.push(META.stage1.source_checkpoint,...modelIds(im));
     rows.push(row);
   }
   return rows;
 }
 
 function downloadCsv(rows, fname) {
-  const txt = "﻿" + [CSV_HEAD, ...rows].map(r => r.join(",")).join("\r\n");
+  const quote = v => /[",\r\n]/.test(String(v)) ? '"' + String(v).replace(/"/g,'""') + '"' : String(v);
+  const txt = "﻿" + [CSV_HEAD, ...rows].map(r => r.map(quote).join(",")).join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([txt], { type: "text/csv" }));
   a.download = fname; a.click();
@@ -605,7 +719,7 @@ function updateCsvButtons() {
 
 $("btn-csv").onclick = () => {
   const im = state.images[state.cur];
-  downloadCsv(csvRows(im), im.name.replace(/\.[^.]+$/, "") + `_${im.kneeMode}_angles.csv`);
+  downloadCsv(csvRows(im), im.name.replace(/\.[^.]+$/, "") + `_${modelFileTag(im)}_angles.csv`);
 };
 $("btn-csv-all").onclick = () => {
   const rows = state.images.filter(im => im.legs).flatMap(csvRows);
@@ -618,7 +732,7 @@ function exportAnnotated(im) { // 원본 해상도 PNG (현재 토글 상태 반
   const main = makeCanvas(im.W, im.H);
   const ctx = main.getContext("2d");
   ctx.drawImage(im.bitmap, 0, 0);
-  const modelText = "무릎: " + XrayEnsemble.kneeModes[im.kneeMode];
+  const modelText = modelLabel(im.modelKey) + " / stage1_90";
   ctx.font = `bold ${11 * u}px sans-serif`;
   ctx.fillStyle = "rgba(16,23,26,.8)";
   ctx.fillRect(0, 0, ctx.measureText(modelText).width + 12*u, 24*u);
@@ -709,10 +823,12 @@ function downloadBlob(blob, fname) {
   URL.revokeObjectURL(a.href);
 }
 
-function kneeModelId(im) {
-  return XrayEnsemble.kneeMembers(META, im.kneeMode).map(n => META[n].source_checkpoint || n).join("+");
+function modelIds(im) {
+  const selected = XrayEnsemble.selectedModels(META,im.modelKey);
+  return XrayEnsemble.JOINTS.map(j=>selected[j].map(n=>META[n].source_checkpoint).join("+"));
 }
-function annotatedName(im) { return im.name.replace(/\.[^.]+$/, "") + `_${im.kneeMode}_annotated.png`; }
+function modelFileTag(im) { return modelIds(im).join("__"); }
+function annotatedName(im) { return im.name.replace(/\.[^.]+$/, "") + `_${modelFileTag(im)}_annotated.png`; }
 
 // ---------- 무압축 ZIP 생성 (일괄 PNG 저장용, 외부 라이브러리 없이) ----------
 const CRC_TABLE = (() => {
@@ -792,13 +908,13 @@ $("btn-png-all").onclick = exportAllAnnotated;
 
 // ---------- CSV 미리보기 ----------
 const CSV_HEAD = ["image", "side", ...MEASURES,
-  ...PT_ORDER.flatMap(n => [n + "_x", n + "_y"]), "edited_points", "knee_model"];
+  ...PT_ORDER.flatMap(n => [n + "_x", n + "_y"]), "edited_points", "stage1_model", "hip_models", "knee_models", "ankle_models"];
 
 function openCsvPreview() {
   const rows = state.images.filter(im => im.legs).flatMap(csvRows);
   let h = "<table><tr>" + CSV_HEAD.map(c => `<th>${c}</th>`).join("") + "</tr>";
   for (const r of rows)
-    h += "<tr>" + r.map(v => `<td>${v === "" ? "—" : v}</td>`).join("") + "</tr>";
+    h += "<tr>" + r.map(v => `<td>${String(v === "" ? "—" : v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</td>`).join("") + "</tr>";
   h += "</table>";
   $("csvtable").innerHTML = h;
   $("csvcount").textContent = `${rows.length}행 (다리 단위) · ${state.images.filter(im => im.legs).length}장`;
@@ -841,7 +957,7 @@ for (const side of ["right", "left"]) {
 }
 document.addEventListener("keydown", e => {
   if (e.target.closest("input,select,textarea,[contenteditable=true]")) return;
-  if (e.key === "Escape") { $("csvmodal").style.display = "none"; return; }
+  if (e.key === "Escape") { $("csvmodal").style.display = "none"; $("model-modal").style.display = "none"; return; }
   if (e.key >= "1" && e.key <= "5") { $("btn-ang-" + MEASURES[e.key - 1]).click(); return; }
   if (e.key === "6") { $("btn-side-right").click(); return; }
   if (e.key === "7") { $("btn-side-left").click(); return; }
@@ -857,7 +973,11 @@ $("file").addEventListener("change", e => {
   e.target.value = ""; // selecting the same file again must trigger change
   addFiles(files);
 });
-$("knee-model").addEventListener("change", e => chooseKneeModel(e.target.value));
+$("btn-models").onclick = openCatalog;
+$("model-close").onclick = () => $("model-modal").style.display = "none";
+$("model-modal").onclick = e => { if (e.target === $("model-modal")) $("model-modal").style.display = "none"; };
+$("model-default").onclick = () => { catalogDraft = structuredClone(META.catalog.defaults); renderCatalog(); };
+$("model-apply").onclick = () => chooseModels(catalogDraft).catch(e=>{ $("model-message").textContent = e.message; });
 window.addEventListener("dragover", e => { e.preventDefault(); $("drop").style.display = "flex"; });
 window.addEventListener("dragleave", e => { if (!e.relatedTarget) $("drop").style.display = "none"; });
 window.addEventListener("drop", e => {
@@ -869,7 +989,6 @@ window.addEventListener("resize", renderAll);
 loadModels().catch(async e => {
   modelsReady = false;
   $("file").disabled = true;
-  $("knee-model").disabled = true;
   setStatus("모델 로딩 실패 — 새로고침 후 다시 시도하세요: " + e.message);
   const sessions = Object.values(MODELS);
   for (const name of Object.keys(MODELS)) delete MODELS[name];
@@ -877,4 +996,5 @@ loadModels().catch(async e => {
     try { await session.release(); }
     catch (cleanupError) { console.warn("모델 세션 정리 실패", cleanupError); }
   }
+  renderCatalog();
 });
