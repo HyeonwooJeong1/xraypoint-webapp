@@ -193,9 +193,6 @@ function openCatalog() {
 function renderCatalog() {
   if (!META || !catalogDraft) return;
   const list = $("model-list"); list.replaceChildren();
-  const benchmarkNote = document.createElement("p"); benchmarkNote.className = "model-error-note";
-  benchmarkNote.textContent = "정규화 오차율 = 예측–정답 거리 ÷ 정답 p5–p6 거리 × 100. 외부 테스트 400다리의 평균이며, 업로드 영상의 개별 오차를 뜻하지 않습니다. 낮을수록 좋습니다.";
-  list.append(benchmarkNote);
   for (const joint of XrayEnsemble.JOINTS) {
     const group = document.createElement("section"), title = document.createElement("h3");
     title.textContent = JOINT_LABELS[joint]; group.append(title);
@@ -224,7 +221,7 @@ function renderCatalog() {
   }
   let reason = "";
   try { XrayEnsemble.selectedModels(META,catalogDraft); } catch(e) { reason = e.message; }
-  $("model-message").textContent = reason || storageWarning || "관절마다 1개 이상 선택하세요. 여러 모델은 히트맵을 같은 비중으로 평균합니다.";
+  $("model-message").textContent = reason || storageWarning || "";
   $("model-apply").disabled = !modelsReady || assetBusy || processingQueue || !!reason;
   $("model-default").disabled = assetBusy || processingQueue;
   $("stage1-info").textContent = META.stage1.status === "ready"
@@ -252,10 +249,10 @@ function renderModelErrors(joint) {
   const current=cases.findIndex(c=>JSON.stringify(c.models)===JSON.stringify(selected));
   const labels=["B0","HRNet","앙상블"];
   const summary=document.createElement("p"); summary.className="model-error-summary"; summary.setAttribute("aria-live","polite");
-  summary.textContent=current<0 ? "모델을 선택하면 조합의 평균 오차율이 표시됩니다."
+  summary.textContent=current<0 ? "모델 미선택"
     : `선택한 ${labels[current]} · 평균 ${cases[current].mean_pct.toFixed(3)}%`;
   const table=document.createElement("table");table.className="model-error-table";
-  const caption=document.createElement("caption");caption.textContent="점별 평균 정규화 오차율 (%)";
+  const caption=document.createElement("caption");caption.textContent="점별 정규화 오차율 · 테스트 평균 (%)";
   const head=document.createElement("thead"),headRow=document.createElement("tr");
   for(const [i,text] of ["점",...labels].entries()){
     const cell=document.createElement("th");cell.scope="col";cell.textContent=text;
@@ -273,9 +270,7 @@ function renderModelErrors(joint) {
     body.append(row);
   }
   table.append(body);
-  const note=document.createElement("small");
-  note.textContent=`각 점 n=${MODEL_ERRORS.dataset.legs} · 평가 ${MODEL_ERRORS.evaluated_on} · GT: amal · PyTorch 평가`;
-  box.append(summary,table,note);return box;
+  box.append(summary,table);return box;
 }
 async function downloadModel(id) {
   if (assetBusy || processingQueue) return;
