@@ -7,6 +7,7 @@ ort.env.wasm.wasmPaths = new URL("lib/", location.href).href;
 ort.env.wasm.numThreads = 1; // cross-origin isolation 없이 동작
 
 const MODELS = {};   // name -> ort.InferenceSession
+let MODEL_ERRORS = null;
 let META = null;     // models/meta.json
 let modelsReady = false;
 let processingQueue = false;
@@ -128,6 +129,7 @@ async function loadModels() {
   if (!response.ok) throw new Error(`모델 정보 HTTP ${response.status}`);
   META = await response.json();
   XrayEnsemble.validateMetadata(META);
+  loadModelErrors();
   state.modelKey = XrayEnsemble.selectionKey(META, META.catalog.defaults);
   catalogDraft = XrayEnsemble.selectedModels(META, state.modelKey);
   assetStore = XrayEnsemble.createAssetStore({baseUrl:location.href, onStorageError:() => {
@@ -191,6 +193,9 @@ function openCatalog() {
 function renderCatalog() {
   if (!META || !catalogDraft) return;
   const list = $("model-list"); list.replaceChildren();
+  const benchmarkNote = document.createElement("p"); benchmarkNote.className = "model-error-note";
+  benchmarkNote.textContent = "정규화 오차율 = 예측–정답 거리 ÷ 정답 p5–p6 거리 × 100. 외부 테스트 400다리의 평균이며, 업로드 영상의 개별 오차를 뜻하지 않습니다. 낮을수록 좋습니다.";
+  list.append(benchmarkNote);
   for (const joint of XrayEnsemble.JOINTS) {
     const group = document.createElement("section"), title = document.createElement("h3");
     title.textContent = JOINT_LABELS[joint]; group.append(title);
@@ -204,18 +209,17 @@ function renderCatalog() {
         renderCatalog();
       };
       const label = document.createElement("label"); label.htmlFor = check.id;
-      const strong = document.createElement("strong"); strong.textContent = m.title;
+      const strong = document.createElement("strong"); strong.textContent = JOINT_LABELS[joint]+" "+(m.encoder.includes("hrnet")?"HRNet-W32":"B0");
       const detail = document.createElement("small");
       detail.textContent = `${m.encoder} · ${(m.parameter_count/1e6).toFixed(2)}M 파라미터 · ${m.input[3]}×${m.input[2]} · ${mb(m.download_bytes)} MB`;
-      const description = document.createElement("small");
-      description.textContent = `${id} · 최신 라벨 · 학습 90% / 검증 10%${META.catalog.defaults[joint].includes(id)?" · 기본 선택":""}`;
-      label.append(strong,detail,description);
+      label.append(strong,detail);
       const action = document.createElement("button"); action.dataset.download = id;
       action.textContent = downloadState[id] || (cachedModels.has(id)?"다운로드 완료":MODELS[id]?"브라우저에 저장":"다운로드");
       action.disabled = assetBusy || processingQueue || cachedModels.has(id);
       action.onclick = () => downloadModel(id);
       row.append(check,label,action); group.append(row);
     }
+    group.append(renderModelErrors(joint));
     list.append(group);
   }
   let reason = "";
@@ -224,8 +228,54 @@ function renderCatalog() {
   $("model-apply").disabled = !modelsReady || assetBusy || processingQueue || !!reason;
   $("model-default").disabled = assetBusy || processingQueue;
   $("stage1-info").textContent = META.stage1.status === "ready"
-    ? `공통 위치 탐지: stage1_90 · 최신 라벨 / 90:10 · ${mb(META.stage1.download_bytes)} MB (자동 다운로드)`
-    : "공통 위치 탐지 stage1_90 재학습 중 — 다운로드는 가능하며, 영상 분석은 학습·검증 완료 후 열립니다.";
+    ? `공통 위치 탐지 모델 · ${mb(META.stage1.download_bytes)} MB (자동 다운로드)`
+    : "공통 위치 탐지 모델 준비 중 — 다운로드는 가능하며, 영상 분석은 학습·검증 완료 후 열립니다.";
+}
+async function loadModelErrors() {
+  try {
+    const version = document.querySelector('meta[name="xraypoint-version"]').content;
+    const response = await fetch(`model-errors.json?v=${encodeURIComponent(version)}`, {cache:"no-store"});
+    if (!response.ok) throw new Error("benchmark unavailable");
+    const report = await response.json();
+    if (!XrayEnsemble.JOINTS.every(j => XrayEnsemble.modelErrorCases(META,report,j)))
+      throw new Error("benchmark does not match current models");
+    MODEL_ERRORS = report;
+  } catch (e) { MODEL_ERRORS = null; console.warn("모델 평가 수치를 불러오지 못했습니다",e); }
+  renderCatalog();
+}
+function renderModelErrors(joint) {
+  const box=document.createElement("div"); box.className="model-errors"; box.dataset.joint=joint;
+  const cases=XrayEnsemble.modelErrorCases(META,MODEL_ERRORS,joint);
+  if (!cases) { box.textContent="현재 모델의 평가 수치를 불러오지 못했습니다."; return box; }
+  const names=META.catalog.models.filter(n=>META[n].joint===joint);
+  const selected=names.filter(n=>catalogDraft[joint].includes(n));
+  const current=cases.findIndex(c=>JSON.stringify(c.models)===JSON.stringify(selected));
+  const labels=["B0","HRNet","앙상블"];
+  const summary=document.createElement("p"); summary.className="model-error-summary"; summary.setAttribute("aria-live","polite");
+  summary.textContent=current<0 ? "모델을 선택하면 조합의 평균 오차율이 표시됩니다."
+    : `선택한 ${labels[current]} · 평균 ${cases[current].mean_pct.toFixed(3)}%`;
+  const table=document.createElement("table");table.className="model-error-table";
+  const caption=document.createElement("caption");caption.textContent="점별 평균 정규화 오차율 (%)";
+  const head=document.createElement("thead"),headRow=document.createElement("tr");
+  for(const [i,text] of ["점",...labels].entries()){
+    const cell=document.createElement("th");cell.scope="col";cell.textContent=text;
+    if(i-1===current)cell.className="selected-error";headRow.append(cell);
+  }
+  head.append(headRow);table.append(caption,head);
+  const body=document.createElement("tbody");
+  for(const point of META[names[0]].landmarks){
+    const row=document.createElement("tr"),label=document.createElement("th");
+    label.scope="row";label.textContent=point;row.append(label);
+    for(let i=0;i<cases.length;i++){
+      const cell=document.createElement("td");cell.textContent=cases[i].points[point].mean_pct.toFixed(3);
+      if(i===current)cell.className="selected-error";row.append(cell);
+    }
+    body.append(row);
+  }
+  table.append(body);
+  const note=document.createElement("small");
+  note.textContent=`각 점 n=${MODEL_ERRORS.dataset.legs} · 평가 ${MODEL_ERRORS.evaluated_on} · GT: amal · PyTorch 평가`;
+  box.append(summary,table,note);return box;
 }
 async function downloadModel(id) {
   if (assetBusy || processingQueue) return;

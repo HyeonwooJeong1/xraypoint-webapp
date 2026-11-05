@@ -81,6 +81,28 @@
       return ["stage1",...JOINTS.flatMap(j=>defaults[j])];
   }
 
+  // Return only a complete benchmark tied to the exact deployed checkpoints.
+  function modelErrorCases(meta, report, joint) {
+    if (report?.schema !== 1 || report.metric !== "gt_p5_p6_normalized_error_pct" ||
+        report.model_release !== meta.release ||
+        report.stage1_checkpoint_sha256 !== meta.stage1.checkpoint_sha256 ||
+        !Number.isInteger(report.dataset?.legs) || report.dataset.legs <= 0) return null;
+    const names = meta.catalog.models.filter(n => meta[n].joint === joint);
+    if (names.length !== 2 || names.some(n => report.model_checkpoint_sha256?.[n] !== meta[n].checkpoint_sha256)) return null;
+    const wanted = [[names[0]], [names[1]], names], cases = report.groups?.[joint];
+    if (!Array.isArray(cases) || cases.length !== wanted.length) return null;
+    const points = meta[names[0]].landmarks;
+    for (let i=0; i<wanted.length; i++) {
+      const c=cases[i];
+      if (!same(c?.models,wanted[i]) || c.n_legs !== report.dataset.legs ||
+          !Number.isFinite(c.mean_pct) || c.mean_pct < 0 ||
+          !same(Object.keys(c.points || {}),points) ||
+          points.some(p => !Number.isFinite(c.points[p].mean_pct) || c.points[p].mean_pct < 0 ||
+                           c.points[p].n !== report.dataset.legs)) return null;
+    }
+    return cases;
+  }
+
   // Only model assets enter Cache Storage. Images and predictions stay in memory.
   function createAssetStore({baseUrl, cacheStorage = root.caches, fetchImpl = root.fetch.bind(root),
                               cryptoImpl = root.crypto, onStorageError = () => {}}) {
@@ -195,7 +217,7 @@
     }
   }
 
-  const api = { validateMetadata, predictHeatmaps, JOINTS, selectedModels,
+  const api = { modelErrorCases, validateMetadata, predictHeatmaps, JOINTS, selectedModels,
     compatibilityReason, selectionKey, modelAssets, createAssetStore };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.XrayEnsemble = api;

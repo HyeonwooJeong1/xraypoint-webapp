@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="xraypoint-version" content="3.1.0">
+<meta name="xraypoint-version" content="3.2.0">
 <title>xraypoint — 하반신 정렬 자동 측정</title>
 <style>
 :root { --bg:#10171A; --card:#182228; --ink:#E4ECEF; --ink2:#9FB2B9; --line:#26343B;
@@ -85,12 +85,26 @@ button.sm { padding:4px 8px; font-size:12px; }
 #model-message { color:var(--ink2); margin:0 0 10px; }
 #stage1-info { padding:10px 18px; margin:0; color:var(--ink2); font-size:12px; }
 @media(max-width:600px) { .model-row { flex-wrap:wrap; } .model-row button { margin-left:30px; } }
+
+.model-error-note { color:var(--ink2); font-size:12px; line-height:1.6; margin:14px 0; }
+.model-errors { margin:10px 0 18px; padding:12px; background:var(--bg); border-radius:8px; }
+.model-error-summary { margin:0 0 8px; font-weight:600; color:var(--accent); }
+.model-error-table { border-collapse:collapse; width:100%; font-variant-numeric:tabular-nums; font-size:12px; }
+.model-error-table caption { text-align:left; color:var(--ink2); padding:0 0 5px; }
+.model-error-table th, .model-error-table td { padding:4px 10px; text-align:right; border-bottom:1px solid var(--line); }
+.model-error-table th:first-child { text-align:left; }
+.model-error-table .selected-error { background:#203C45; color:#99E2EE; font-weight:700; }
+.model-errors small { display:block; color:var(--ink2); margin-top:8px; font-size:11px; }
+@media (max-width:540px) {
+  .model-row { gap:7px; } .model-row button { min-width:75px; padding:5px; }
+  #model-list { padding:0 10px; } .model-error-table th, .model-error-table td { padding:4px; }
+}
 </style>
 </head>
 <body>
 <header>
   <b>xraypoint</b><span style="color:var(--ink2);font-size:12px">하반신 정렬 자동 측정 (브라우저 내 추론)</span>
-  <a id="app-version" href="https://github.com/HyeonwooJeong1/xraypoint-webapp/blob/v3.1.0/CHANGELOG.md" target="_blank" rel="noopener noreferrer">v3.1.0 · 변경 내역</a>
+  <a id="app-version" href="https://github.com/HyeonwooJeong1/xraypoint-webapp/blob/v3.2.0/CHANGELOG.md" target="_blank" rel="noopener noreferrer">v3.2.0 · 변경 내역</a>
   <label class="btn primary">X-ray 파일 열기<input id="file" type="file" accept="image/*" multiple hidden disabled></label>
   <button id="btn-models" disabled>모델 선택·다운로드</button>
   <span id="model-summary"></span>
@@ -156,8 +170,8 @@ button.sm { padding:4px 8px; font-size:12px; }
     </footer>
   </div>
 </div>
-<script src="lib/ort.min.js?v=3.1.0"></script>
-<script src="ensemble.js?v=3.1.0"></script>
-<script src="app.js?v=3.1.0"></script>
+<script src="lib/ort.min.js?v=3.2.0"></script>
+<script src="ensemble.js?v=3.2.0"></script>
+<script src="app.js?v=3.2.0"></script>
 </body>
 </html>
